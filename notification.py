@@ -6,7 +6,10 @@ import hmac
 import hashlib
 import base64
 import logging
-from . import config
+try:
+    from . import config
+except ImportError:
+    import config
 
 logger = logging.getLogger(__name__)
 

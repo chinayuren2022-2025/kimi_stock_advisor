@@ -111,6 +111,7 @@ def save_snapshots(data_list: List[Dict[str, Any]]):
         ))
         
     try:
+        conn.execute("BEGIN TRANSACTION")
         cursor.executemany(insert_sql, rows)
         conn.commit()
     except Exception as e:

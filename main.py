@@ -2,13 +2,20 @@ import sys
 import os
 import logging
 import time
+from datetime import datetime
 from collections import deque
 from typing import Dict, Any
 
-from . import config
-from .data_feeder import fetch_all_data, StockRealtimeData
-from .kimi_advisor import KimiAdvisor
-from . import notification
+try:
+    from . import config
+    from .data_feeder import feed_all_data, StockRealtimeData, fetch_daily_history_cache
+    from .kimi_advisor import KimiAdvisor
+    from . import notification
+except ImportError:
+    import config
+    from data_feeder import feed_all_data, StockRealtimeData, fetch_daily_history_cache
+    from kimi_advisor import KimiAdvisor
+    import notification
 
 # Setup logging
 logging.basicConfig(
@@ -118,12 +125,39 @@ def check_triggers(data: StockRealtimeData) -> Dict[str, Any]:
         
     return None
 
+def is_trading_time() -> bool:
+    """
+    Check if current time is within A-share trading hours.
+    Morning: 09:25 - 11:30
+    Afternoon: 13:00 - 15:00
+    """
+    now = datetime.now()
+    current_time = now.time()
+    
+    # Define ranges
+    morning_start = datetime.strptime("09:25", "%H:%M").time()
+    morning_end = datetime.strptime("11:30", "%H:%M").time()
+    
+    afternoon_start = datetime.strptime("13:00", "%H:%M").time()
+    afternoon_end = datetime.strptime("15:00", "%H:%M").time()
+    
+    # Check ranges
+    is_morning = morning_start <= current_time <= morning_end
+    is_afternoon = afternoon_start <= current_time <= afternoon_end
+    
+    return is_morning or is_afternoon
+
 def monitor_forever():
     # 0. Initialize Database
     try:
-        from . import database
-        from .dashboard import MonitorDashboard
-        from rich.live import Live
+        try:
+            from . import database
+            from .dashboard import MonitorDashboard
+            from rich.live import Live
+        except ImportError:
+            import database
+            from dashboard import MonitorDashboard
+            from rich.live import Live
     except ImportError as e:
         logger.error(f"Missing dependencies: {e}")
         return
@@ -149,7 +183,7 @@ def monitor_forever():
     # 0.2 Pre-load Daily History (Context)
     # This runs ONCE.
     try:
-        daily_history_cache = data_feeder.fetch_daily_history_cache(config.STOCK_POOL)
+        daily_history_cache = fetch_daily_history_cache(config.STOCK_POOL)
     except Exception as e:
         logger.error(f"Daily history init failed: {e}")
         daily_history_cache = {}
@@ -164,7 +198,7 @@ def monitor_forever():
                 try:
                     # Fetch ONLY Monitored Pool (Optimization)
                     # Previous "All Market" fetch was causing DB bloat and slowness (~5000 rows/10s).
-                    data_map = fetch_all_data(stock_list=config.STOCK_POOL, all_market=False)
+                    data_map = feed_all_data(stock_list=config.STOCK_POOL, all_market=False)
                     dashboard.add_log(f"Fetched {len(data_map)} stocks (Pool Only).")
                     
                 except Exception as e:
@@ -172,17 +206,20 @@ def monitor_forever():
                     time.sleep(5)
                     continue
 
-                # 2. Save to DB
-                # Convert to list of dicts for DB
-                db_payload = []
-                for symbol, data in data_map.items():
-                    db_payload.append({
-                        'code': symbol,
-                        'price': data.snapshot.get('最新价', 0),
-                        'change_pct': data.snapshot.get('涨跌幅', 0),
-                        'volume': data.snapshot.get('成交量', 0)
-                    })
-                database.save_snapshots(db_payload)
+                # 2. Save to DB (Only during Trading Hours)
+                if is_trading_time():
+                    # Convert to list of dicts for DB
+                    db_payload = []
+                    for symbol, data in data_map.items():
+                        db_payload.append({
+                            'code': symbol,
+                            'price': data.snapshot.get('最新价', 0),
+                            'change_pct': data.snapshot.get('涨跌幅', 0),
+                            'volume': data.snapshot.get('成交量', 0)
+                        })
+                    database.save_snapshots(db_payload)
+                else:
+                    dashboard.add_log("⏸️ 非交易时间，暂停存储 (节省空间)...")
                 
                 # 2.1 Calculate Market Sentiment (Pool Average)
                 sentiment = 0.0
@@ -279,6 +316,8 @@ def monitor_forever():
                         'price': data.snapshot.get('最新价', 0),
                         'pct_chg': data.snapshot.get('涨跌幅', 0),
                         'speed': display_speed,
+                        'avg_price': data.snapshot.get('均价', 0),
+                        'commit_ratio': data.snapshot.get('委比', 0),
                         'high': data.snapshot.get('最高', 0),
                         'low': data.snapshot.get('最低', 0),
                         'vol_ratio': data.snapshot.get('量比', 1.0),
@@ -289,7 +328,11 @@ def monitor_forever():
                 live.update(dashboard.generate_layout(display_data))
             
                 # 4. Sleep
-                time.sleep(config.MONITOR_INTERVAL)
+                # Adjust sleep based on trading time to save resources
+                if is_trading_time():
+                    time.sleep(config.MONITOR_INTERVAL)
+                else:
+                    time.sleep(60) # Sleep longer during non-trading hours
             
         except KeyboardInterrupt:
             logger.info("用户停止了监控程序。")

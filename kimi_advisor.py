@@ -1,7 +1,10 @@
 import logging
 import json
 from typing import Dict, Any
-from .data_feeder import StockRealtimeData
+try:
+    from .data_feeder import StockRealtimeData
+except ImportError:
+    from data_feeder import StockRealtimeData
 # Import OpenAI client
 try:
     from openai import OpenAI
@@ -99,6 +102,8 @@ class KimiAdvisor:
    
 2. 资金博弈:
    - 动态量比: {indicators.get('vol_ratio', 0)} (FROM LOCAL DB: 1min delta / 30min avg)
+   - 盘口委比: {data.snapshot.get('委比', 0):+.2f}% (正值代表买盘强，负值代表抛压重)
+   - 日内均价: {data.snapshot.get('均价', 0):.2f} (当前乖离: {((price - data.snapshot.get('均价', 0))/data.snapshot.get('均价', 1)*100) if data.snapshot.get('均价', 0) > 0 else 0:+.2f}%)
    - 主力净流入: N/A (数据暂缺，请重点关注量价配合)
    - 盘口特征: {indicators.get('order_book_feature', 'N/A')}
 
