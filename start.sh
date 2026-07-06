@@ -35,10 +35,11 @@ source .venv/bin/activate
 echo "→ 安装依赖 (首次较慢) ..."
 pip install -q -r requirements.txt
 
-# 4. 环境变量提示
-# 4.1 AI Provider (默认 kimi，可用 QUANT_AI_PROVIDER 切换)
+# 4. 环境变量提示（可选，也可在 GUI 配置中心填写并持久化）
+echo "ℹ️  环境变量可选——也可启动后在 GUI「配置中心」Tab 填写并保存（持久化到 ~/.quant_local_config.json）。"
 AI_PROVIDER="${QUANT_AI_PROVIDER:-kimi}"
-echo "ℹ️  当前 AI Provider: $AI_PROVIDER (可用 export QUANT_AI_PROVIDER=deepseek|qwen|glm|doubao|custom 切换)"
+echo "   默认 AI Provider: $AI_PROVIDER"
+echo "   如需用 env: export QUANT_AI_PROVIDER=deepseek|qwen|glm|doubao|custom"
 case "$AI_PROVIDER" in
     kimi)    KEY_VAR="KIMI_API_KEY1" ;;
     deepseek) KEY_VAR="DEEPSEEK_API_KEY" ;;
@@ -50,13 +51,10 @@ case "$AI_PROVIDER" in
 esac
 eval "KEY_VAL=\${$KEY_VAR:-}"
 if [ -z "$KEY_VAL" ]; then
-    echo "⚠️  未设置 $KEY_VAR，AI 预警将降级提示。"
-    echo "   export $KEY_VAR=\"...\""
+    echo "   (未设置 $KEY_VAR，可在 GUI 配置中心填写)"
 fi
-# 4.2 飞书
 if [ -z "$FEISHU_WEBHOOK_URL" ]; then
-    echo "⚠️  未设置 FEISHU_WEBHOOK_URL，飞书推送将跳过。"
-    echo "   export FEISHU_WEBHOOK_URL=\"https://open.feishu.cn/open-apis/bot/v2/hook/xxx\""
+    echo "   (未设置 FEISHU_WEBHOOK_URL，可在 GUI 配置中心填写)"
 fi
 
 # 5. 启动 GUI

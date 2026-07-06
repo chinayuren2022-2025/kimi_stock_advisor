@@ -34,7 +34,11 @@ cd kimi_stock_advisor
 pip install -r requirements.txt
 ```
 
-### 2. 配置环境变量
+### 2. 配置（二选一）
+
+**方式 A — GUI 配置中心（推荐）**：启动后在「配置中心」Tab 填写 AI Provider、API Key、飞书 Webhook 等，点保存即持久化到 `~/.quant_local_config.json`，下次启动自动加载。无需碰终端。
+
+**方式 B — 环境变量（可选，适合无头/TUI）**：
 
 ```bash
 # macOS / Linux
@@ -48,6 +52,8 @@ $env:QUANT_AI_PROVIDER="kimi"
 $env:KIMI_API_KEY1="sk-..."
 $env:FEISHU_WEBHOOK_URL="https://open.feishu.cn/open-apis/bot/v2/hook/xxx"
 ```
+
+配置优先级：GUI 显式输入 > JSON 配置文件 > env 变量 > config.py 默认值。
 
 ### 3. 启动
 
@@ -136,9 +142,10 @@ kimi_stock_advisor/
 ├── engine.py           # 监控核心：MonitorEngine，TUI/GUI 共用
 ├── ai_provider.py      # 多 LLM provider 预设与解析
 ├── kimi_advisor.py     # AI 顾问（通用 AIAdvisor 类）
+├── settings.py         # 配置持久化（~/.quant_local_config.json）
 ├── data_feeder.py      # 行情获取（EasyQuotation + AkShare）
 ├── database.py         # SQLite 存储与指标计算
-├── notification.py     # 飞书消息推送
+├── notification.py     # 飞书消息推送（支持运行时配置）
 ├── dashboard.py        # Rich 终端 UI 组件
 ├── config.py           # 配置（股票池、阈值、env 读取）
 ├── test_feed_all_data.py  # 单元测试

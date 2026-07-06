@@ -1,6 +1,7 @@
 """
-PyQt6 GUI 入口：5 Tab 界面，QTimer + QThread 驱动 engine.MonitorEngine。
+PyQt6 GUI 入口：6 Tab 界面，QTimer + QThread 驱动 engine.MonitorEngine。
 启动: python gui.py  或  ./start.sh
+配置持久化: ~/.quant_local_config.json (settings.py)
 """
 import sys
 import os
@@ -17,7 +18,8 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QTableWidget, QTableWidgetItem, QHeaderView, QPushButton, QLabel,
     QListWidget, QLineEdit, QFormLayout, QPlainTextEdit, QTextEdit,
-    QSpinBox, QDoubleSpinBox, QMessageBox, QSplitter, QComboBox
+    QSpinBox, QDoubleSpinBox, QMessageBox, QSplitter, QComboBox,
+    QGroupBox, QGridLayout
 )
 from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QColor, QTextCursor
@@ -25,9 +27,13 @@ from PyQt6.QtGui import QColor, QTextCursor
 try:
     from .engine import MonitorEngine, is_trading_time
     from . import ai_provider
+    from . import settings
+    from . import notification
 except ImportError:
     from engine import MonitorEngine, is_trading_time
     import ai_provider
+    import settings
+    import notification
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 
 # =========================================================================
-# 工作线程：跑 engine.cycle()，避免 Kimi API 阻塞 UI
+# 工作线程：跑 engine.cycle()，避免 AI API 阻塞 UI
 # =========================================================================
 class MonitorWorker(QThread):
     cycle_done = pyqtSignal(list, list, str)   # rows, alerts, status
@@ -77,30 +83,22 @@ class MarketTab(QWidget):
         self.status_label = QLabel("⏹ 未启动")
         self.sentiment_label = QLabel("市场情绪: --")
 
-        # AI Provider 切换区
+        # AI Provider 快捷切换区
         self.provider_label = QLabel("AI:")
         self.provider_combo = QComboBox()
         for key, name in ai_provider.get_provider_list():
             self.provider_combo.addItem(f"{name} ({key})", key)
-        # 默认选当前 provider
-        cur_provider = ai_provider.resolve()[0]
-        idx = self.provider_combo.findData(cur_provider)
-        if idx >= 0:
-            self.provider_combo.setCurrentIndex(idx)
 
         self.model_input = QLineEdit()
-        self.model_input.setPlaceholderText("模型 (留空用预设默认)")
-        cur_model = ai_provider.resolve()[2]
-        if cur_model and cur_model != 'ep-xxx':
-            self.model_input.setText(cur_model)
+        self.model_input.setPlaceholderText("模型 (留空用预设)")
         self.model_input.setMaximumWidth(160)
 
         self.key_input = QLineEdit()
-        self.key_input.setPlaceholderText("API Key (留空走 env)")
+        self.key_input.setPlaceholderText("API Key (留空走已保存配置)")
         self.key_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.key_input.setMaximumWidth(200)
 
-        self.btn_apply_provider = QPushButton("应用 Provider")
+        self.btn_apply_provider = QPushButton("快捷切换")
         self.btn_start = QPushButton("▶ 启动监控")
         self.btn_stop = QPushButton("■ 停止")
         self.btn_stop.setEnabled(False)
@@ -162,18 +160,16 @@ class MarketTab(QWidget):
             for c, text in enumerate(cells):
                 cell = QTableWidgetItem(text)
                 cell.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                # 着色
-                if c == 3:  # 涨跌幅
+                if c == 3:
                     if pct > 0:
                         cell.setForeground(QColor("#d32f2f"))
                     elif pct < 0:
                         cell.setForeground(QColor("#388e3c"))
-                elif c == 4:  # 涨速
+                elif c == 4:
                     if speed > 1.0:
                         cell.setForeground(QColor("#d32f2f"))
                     elif speed < -1.0:
                         cell.setForeground(QColor("#388e3c"))
-                # 预警行高亮
                 if '🚀' in status or '🌊' in status:
                     cell.setBackground(QColor("#fff9c4"))
                 self.table.setItem(r, c, cell)
@@ -182,6 +178,19 @@ class MarketTab(QWidget):
             self.sentiment_label.setText(f"市场情绪: {sentiment/valid:+.2f}%")
         else:
             self.sentiment_label.setText("市场情绪: --")
+
+    def fill_provider_bar(self, cfg: dict):
+        """从配置填充顶部快捷栏（启动时调用）。"""
+        provider = cfg.get('ai_provider', 'kimi')
+        idx = self.provider_combo.findData(provider)
+        if idx >= 0:
+            self.provider_combo.setCurrentIndex(idx)
+        model = cfg.get('ai_model', '')
+        if model and model != 'ep-xxx':
+            self.model_input.setText(model)
+        key = cfg.get('ai_api_key', '')
+        if key:
+            self.key_input.setText(key)
 
 
 # =========================================================================
@@ -196,20 +205,17 @@ class AlertsTab(QWidget):
         layout = QVBoxLayout(self)
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # 左: 触发列表
         self.list = QListWidget()
         self.list.currentRowChanged.connect(self._show_detail)
         splitter.addWidget(self.list)
 
-        # 右: AI 分析结果
         self.detail = QTextEdit()
         self.detail.setReadOnly(True)
-        self.detail.setPlaceholderText("选中左侧预警以查看 Kimi 分析结果")
+        self.detail.setPlaceholderText("选中左侧预警以查看 AI 分析结果")
         splitter.addWidget(self.detail)
 
         splitter.setSizes([300, 500])
         layout.addWidget(splitter)
-
         self.records = []
 
     def add_alert(self, alert: dict):
@@ -223,7 +229,6 @@ class AlertsTab(QWidget):
     def _show_detail(self, row):
         if row < 0 or row >= len(self.records):
             return
-        # list 是倒序显示，records 是正序追加
         idx = len(self.records) - 1 - row
         if idx < 0 or idx >= len(self.records):
             return
@@ -246,7 +251,7 @@ class AlertsTab(QWidget):
 # Tab 3: 股票池配置
 # =========================================================================
 class StockPoolTab(QWidget):
-    pool_changed = pyqtSignal(list)   # 应用时发出
+    pool_changed = pyqtSignal(list)
 
     def __init__(self, engine: MonitorEngine, parent=None):
         super().__init__(parent)
@@ -283,6 +288,9 @@ class StockPoolTab(QWidget):
         for code in self.engine.stock_pool:
             self.list.addItem(code)
 
+    def reload_from_engine(self):
+        self._load()
+
     def _add(self):
         code = self.input.text().strip()
         if not code:
@@ -304,54 +312,199 @@ class StockPoolTab(QWidget):
 
 
 # =========================================================================
-# Tab 4: 参数
+# Tab 4: 配置中心 (AI + 飞书 + 阈值 + 持久化)
 # =========================================================================
-class ParamsTab(QWidget):
-    thresholds_changed = pyqtSignal(dict)
+class ConfigTab(QWidget):
+    config_saved = pyqtSignal(dict)   # 保存成功后发出
 
     def __init__(self, engine: MonitorEngine, parent=None):
         super().__init__(parent)
         self.engine = engine
         self._build_ui()
+        self._load_from_engine()
 
     def _build_ui(self):
-        layout = QFormLayout(self)
-        t = self.engine.thresholds
+        layout = QVBoxLayout(self)
+
+        # ---- AI Provider 区 ----
+        ai_group = QGroupBox("AI Provider")
+        ai_layout = QGridLayout(ai_group)
+
+        ai_layout.addWidget(QLabel("Provider:"), 0, 0)
+        self.provider_combo = QComboBox()
+        for key, name in ai_provider.get_provider_list():
+            self.provider_combo.addItem(f"{name} ({key})", key)
+        self.provider_combo.currentIndexChanged.connect(self._on_provider_changed)
+        ai_layout.addWidget(self.provider_combo, 0, 1)
+
+        ai_layout.addWidget(QLabel("Model:"), 1, 0)
+        self.model_input = QLineEdit()
+        self.model_input.setPlaceholderText("留空用预设默认 model")
+        ai_layout.addWidget(self.model_input, 1, 1)
+
+        ai_layout.addWidget(QLabel("API Key:"), 2, 0)
+        self.key_input = QLineEdit()
+        self.key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.key_input.setPlaceholderText("sk-... 或对应 provider 的 key")
+        ai_layout.addWidget(self.key_input, 2, 1)
+
+        ai_layout.addWidget(QLabel("Base URL:"), 3, 0)
+        self.base_url_input = QLineEdit()
+        self.base_url_input.setPlaceholderText("仅 custom 需填，其余留空用预设")
+        ai_layout.addWidget(self.base_url_input, 3, 1)
+
+        layout.addWidget(ai_group)
+
+        # ---- 飞书推送区 ----
+        feishu_group = QGroupBox("飞书推送")
+        feishu_layout = QGridLayout(feishu_group)
+
+        feishu_layout.addWidget(QLabel("Webhook URL:"), 0, 0)
+        self.feishu_webhook_input = QLineEdit()
+        self.feishu_webhook_input.setPlaceholderText("https://open.feishu.cn/open-apis/bot/v2/hook/xxx")
+        feishu_layout.addWidget(self.feishu_webhook_input, 0, 1, 1, 2)
+
+        feishu_layout.addWidget(QLabel("签名密钥:"), 1, 0)
+        self.feishu_secret_input = QLineEdit()
+        self.feishu_secret_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.feishu_secret_input.setPlaceholderText("可选，留空=不签名")
+        feishu_layout.addWidget(self.feishu_secret_input, 1, 1)
+
+        self.btn_test_push = QPushButton("🧪 测试推送")
+        self.btn_test_push.clicked.connect(self._test_push)
+        feishu_layout.addWidget(self.btn_test_push, 1, 2)
+
+        layout.addWidget(feishu_group)
+
+        # ---- 策略阈值区 ----
+        threshold_group = QGroupBox("策略阈值")
+        th_layout = QFormLayout(threshold_group)
 
         self.spin_rise = QDoubleSpinBox()
         self.spin_rise.setRange(-10, 10)
         self.spin_rise.setSingleStep(0.1)
         self.spin_rise.setDecimals(2)
-        self.spin_rise.setValue(t.get('rise_speed', config.RISE_SPEED_THRESHOLD))
-        layout.addRow("火箭发射 涨速阈值 (%)", self.spin_rise)
+        th_layout.addRow("火箭发射 涨速阈值 (%)", self.spin_rise)
 
         self.spin_vol = QDoubleSpinBox()
         self.spin_vol.setRange(0, 100)
         self.spin_vol.setSingleStep(0.1)
         self.spin_vol.setDecimals(2)
-        self.spin_vol.setValue(t.get('vol_ratio', config.VOL_RATIO_THRESHOLD))
-        layout.addRow("火箭发射 量比阈值", self.spin_vol)
+        th_layout.addRow("火箭发射 量比阈值", self.spin_vol)
 
         self.spin_drop = QDoubleSpinBox()
         self.spin_drop.setRange(-10, 10)
         self.spin_drop.setSingleStep(0.1)
         self.spin_drop.setDecimals(2)
-        self.spin_drop.setValue(t.get('drop_speed', config.DROP_SPEED_THRESHOLD))
-        layout.addRow("高台跳水 跌速阈值 (%)", self.spin_drop)
+        th_layout.addRow("高台跳水 跌速阈值 (%)", self.spin_drop)
 
-        btn_apply = QPushButton("应用阈值")
-        btn_apply.clicked.connect(self._apply)
-        layout.addRow(btn_apply)
+        layout.addWidget(threshold_group)
 
-    def _apply(self):
-        new = {
+        # ---- 按钮区 ----
+        btn_row = QHBoxLayout()
+        btn_save = QPushButton("💾 保存配置 (持久化到 ~/.quant_local_config.json)")
+        btn_save.clicked.connect(self._save)
+        btn_reset = QPushButton("恢复默认")
+        btn_reset.clicked.connect(self._reset_defaults)
+        btn_row.addStretch()
+        btn_row.addWidget(btn_save)
+        btn_row.addWidget(btn_reset)
+        layout.addLayout(btn_row)
+
+        layout.addStretch()
+
+    def _load_from_engine(self):
+        """从 engine 当前生效配置填充表单。"""
+        cfg = self.engine.get_config()
+        # AI
+        provider = cfg.get('ai_provider', 'kimi')
+        idx = self.provider_combo.findData(provider)
+        if idx >= 0:
+            self.provider_combo.setCurrentIndex(idx)
+        self.model_input.setText(cfg.get('ai_model', '') or '')
+        self.key_input.setText(cfg.get('ai_api_key', '') or '')
+        self.base_url_input.setText(cfg.get('ai_base_url', '') or '')
+        self._sync_base_url_visibility(provider)
+        # 飞书
+        self.feishu_webhook_input.setText(cfg.get('feishu_webhook_url', '') or '')
+        self.feishu_secret_input.setText(cfg.get('feishu_secret', '') or '')
+        # 阈值
+        t = cfg.get('thresholds', {})
+        self.spin_rise.setValue(t.get('rise_speed', 1.0))
+        self.spin_vol.setValue(t.get('vol_ratio', 1.5))
+        self.spin_drop.setValue(t.get('drop_speed', -1.0))
+
+    def _on_provider_changed(self, _idx):
+        provider = self.provider_combo.currentData()
+        self._sync_base_url_visibility(provider)
+
+    def _sync_base_url_visibility(self, provider: str):
+        """custom provider 显示 base_url 输入框，其余隐藏（用预设）。"""
+        is_custom = (provider == 'custom')
+        self.base_url_input.setEnabled(is_custom)
+        if not is_custom:
+            self.base_url_input.clear()
+
+    def _save(self):
+        """保存配置：应用到 engine + 持久化到 JSON。"""
+        provider = self.provider_combo.currentData()
+        model = self.model_input.text().strip() or None
+        key = self.key_input.text().strip() or None
+        base_url = self.base_url_input.text().strip() or None
+        webhook = self.feishu_webhook_input.text().strip()
+        secret = self.feishu_secret_input.text().strip()
+        thresholds = {
             'rise_speed': self.spin_rise.value(),
             'vol_ratio': self.spin_vol.value(),
             'drop_speed': self.spin_drop.value(),
         }
-        self.engine.set_thresholds(new)
-        self.thresholds_changed.emit(new)
-        QMessageBox.information(self, "已应用", "阈值已更新，下一周期生效")
+
+        # 应用到 engine
+        self.engine.set_provider(provider=provider, api_key=key,
+                                  model=model, base_url=base_url)
+        self.engine.set_feishu(webhook_url=webhook, secret=secret)
+        self.engine.set_thresholds(thresholds)
+
+        # 持久化
+        cfg = self.engine.save_runtime_config()
+        self.config_saved.emit(cfg)
+        QMessageBox.information(self, "已保存", "配置已保存并应用，下次启动自动加载。")
+
+    def _reset_defaults(self):
+        """恢复默认值（不自动保存，需用户点保存）。"""
+        defaults = settings.get_default_config()
+        provider = defaults['ai_provider']
+        idx = self.provider_combo.findData(provider)
+        if idx >= 0:
+            self.provider_combo.setCurrentIndex(idx)
+        self.model_input.clear()
+        self.key_input.clear()
+        self.base_url_input.clear()
+        self.feishu_webhook_input.clear()
+        self.feishu_secret_input.clear()
+        t = defaults['thresholds']
+        self.spin_rise.setValue(t['rise_speed'])
+        self.spin_vol.setValue(t['vol_ratio'])
+        self.spin_drop.setValue(t['drop_speed'])
+        QMessageBox.information(self, "已恢复", "已填入默认值，点「保存配置」才会持久化。")
+
+    def _test_push(self):
+        """发送一条测试卡片到飞书群。"""
+        webhook = self.feishu_webhook_input.text().strip()
+        secret = self.feishu_secret_input.text().strip()
+        if not webhook:
+            QMessageBox.warning(self, "无法测试", "请先填写飞书 Webhook URL。")
+            return
+        # 临时配置并发送
+        notification.configure_feishu(webhook_url=webhook, secret=secret)
+        ok = notification.send_feishu("🧪 测试推送", "kimi_stock_advisor 配置成功！")
+        if ok:
+            QMessageBox.information(self, "成功", "测试卡片已发送到飞书群，请查收。")
+        else:
+            QMessageBox.warning(self, "失败", "推送失败，请检查 Webhook URL / 签名密钥。")
+
+    def reload_from_engine(self):
+        self._load_from_engine()
 
 
 # =========================================================================
@@ -390,35 +543,50 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._wire_signals()
+        self._init_from_config()
 
     def _build_ui(self):
         tabs = QTabWidget()
         self.market_tab = MarketTab()
         self.alerts_tab = AlertsTab()
         self.pool_tab = StockPoolTab(self.engine)
-        self.params_tab = ParamsTab(self.engine)
+        self.config_tab = ConfigTab(self.engine)
         self.pushlog_tab = PushLogTab()
 
         tabs.addTab(self.market_tab, "实时行情")
         tabs.addTab(self.alerts_tab, "AI 预警")
         tabs.addTab(self.pool_tab, "股票池")
-        tabs.addTab(self.params_tab, "参数")
+        tabs.addTab(self.config_tab, "配置中心")
         tabs.addTab(self.pushlog_tab, "推送日志")
         self.setCentralWidget(tabs)
+
+    def _init_from_config(self):
+        """启动时从已加载的 JSON 配置填充各 Tab。"""
+        cfg = self.engine.get_config()
+        self.market_tab.fill_provider_bar(cfg)
+        self.config_tab.reload_from_engine()
+        self.pool_tab.reload_from_engine()
 
     def _wire_signals(self):
         self.market_tab.btn_start.clicked.connect(self.start)
         self.market_tab.btn_stop.clicked.connect(self.stop)
-        self.market_tab.btn_apply_provider.clicked.connect(self.apply_provider)
+        self.market_tab.btn_apply_provider.clicked.connect(self.quick_switch_provider)
         self.pool_tab.pool_changed.connect(
             lambda pool: self.pushlog_tab.append(f"股票池更新: {len(pool)} 只")
         )
-        self.params_tab.thresholds_changed.connect(
-            lambda d: self.pushlog_tab.append(f"阈值更新: {d}")
+        self.config_tab.config_saved.connect(self._on_config_saved)
+
+    def _on_config_saved(self, cfg: dict):
+        """配置中心保存后，同步顶部快捷栏与股票池 Tab。"""
+        self.market_tab.fill_provider_bar(cfg)
+        self.pool_tab.reload_from_engine()
+        self.pushlog_tab.append(
+            f"配置已保存: provider={cfg.get('ai_provider')} | "
+            f"飞书={'✅' if cfg.get('feishu_webhook_url') else '❌'}"
         )
 
-    def apply_provider(self):
-        """应用 GUI 选择的 provider/model/key 到 engine。"""
+    def quick_switch_provider(self):
+        """顶部快捷切换（不写 JSON，仅运行时生效）。"""
         provider = self.market_tab.provider_combo.currentData()
         model = self.market_tab.model_input.text().strip() or None
         key = self.market_tab.key_input.text().strip() or None
@@ -427,8 +595,10 @@ class MainWindow(QMainWindow):
                                                  api_key_override=key,
                                                  model_override=model)
         self.pushlog_tab.append(
-            f"AI Provider 切换 -> {p} | model={m} | base_url={base_url}"
+            f"AI Provider 快捷切换 -> {p} | model={m} | base_url={base_url}"
         )
+        # 同步配置中心 Tab
+        self.config_tab.reload_from_engine()
 
     # ---- 启动 / 停动 ----
     def start(self):
@@ -440,7 +610,7 @@ class MainWindow(QMainWindow):
         self.market_tab.status_label.setText("▶ 监控中")
         self.market_tab.btn_start.setEnabled(False)
         self.market_tab.btn_stop.setEnabled(True)
-        self._tick()  # 立即跑一次
+        self._tick()
         self._schedule_next()
 
     def stop(self):
@@ -453,13 +623,12 @@ class MainWindow(QMainWindow):
         self.pushlog_tab.append("监控已停止")
 
     def _schedule_next(self):
-        # 交易时间 10s，非交易时间 60s
         interval = 10000 if is_trading_time() else 60000
         self.timer.start(interval)
 
     def _tick(self):
         if self.worker and self.worker.isRunning():
-            return  # 上一周期还没跑完，跳过
+            return
         self.worker = MonitorWorker(self.engine)
         self.worker.cycle_done.connect(self._on_cycle_done)
         self.worker.log.connect(self.pushlog_tab.append)
@@ -480,7 +649,7 @@ class MainWindow(QMainWindow):
                     f"🔥 预警: {a['type']} on {a['name']} | "
                     f"推送: {'✅' if a.get('pushed') else '❌'}"
                 )
-        self._schedule_next()  # 重新调度（间隔可能因交易时段变化）
+        self._schedule_next()
 
     def closeEvent(self, event):
         self.timer.stop()

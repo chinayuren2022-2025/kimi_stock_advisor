@@ -14,12 +14,14 @@ try:
     from .kimi_advisor import AIAdvisor
     from . import notification
     from . import database
+    from . import settings
 except ImportError:
     import config
     from data_feeder import feed_all_data, StockRealtimeData, fetch_daily_history_cache
     from kimi_advisor import AIAdvisor
     import notification
     import database
+    import settings
 
 logger = logging.getLogger(__name__)
 
@@ -52,20 +54,34 @@ class MonitorEngine:
                  api_key: Optional[str] = None,
                  model: Optional[str] = None,
                  base_url: Optional[str] = None):
-        # 运行时可变配置（GUI 改值时直接 set）
-        self.stock_pool: List[str] = list(stock_pool if stock_pool is not None else config.STOCK_POOL)
-        self.thresholds: Dict[str, float] = thresholds or {
+        # 加载持久化配置（JSON > env > 默认），作为底层默认值
+        self._saved_cfg = settings.load_config()
+        # 把 env 值合并进来（仅填非空缺失项）
+        self._saved_cfg = settings.merge_env_into_config(self._saved_cfg)
+
+        # 运行时可变配置：显式参数 > JSON 配置 > config.py 默认值
+        sp = stock_pool if stock_pool is not None else self._saved_cfg.get('stock_pool', config.STOCK_POOL)
+        self.stock_pool: List[str] = list(sp)
+        self.thresholds: Dict[str, float] = thresholds or self._saved_cfg.get('thresholds') or {
             'rise_speed': config.RISE_SPEED_THRESHOLD,
             'vol_ratio': config.VOL_RATIO_THRESHOLD,
             'drop_speed': config.DROP_SPEED_THRESHOLD,
         }
-        # AI provider 配置（运行时可切换）
-        self.provider = provider
-        self.api_key = api_key
-        self.model = model
-        self.base_url = base_url
+        # AI provider 配置：显式参数 > JSON > env(config.py 已读) > 预设
+        self.provider = provider or self._saved_cfg.get('ai_provider') or None
+        self.api_key = api_key or self._saved_cfg.get('ai_api_key') or None
+        self.model = model or self._saved_cfg.get('ai_model') or None
+        self.base_url = base_url or self._saved_cfg.get('ai_base_url') or None
         self.advisor = AIAdvisor(
-            provider=provider, api_key=api_key, model=model, base_url=base_url)
+            provider=self.provider, api_key=self.api_key,
+            model=self.model, base_url=self.base_url)
+
+        # 飞书配置：JSON > config.py（env 已在 config.py 读取）
+        feishu_webhook = self._saved_cfg.get('feishu_webhook_url') or config.FEISHU_WEBHOOK_URL
+        feishu_secret = self._saved_cfg.get('feishu_secret')
+        if feishu_secret is None:
+            feishu_secret = config.FEISHU_SECRET
+        notification.configure_feishu(webhook_url=feishu_webhook, secret=feishu_secret)
 
         # 内存历史缓存（legacy 回退路径，DB 速度为 0 时兜底）
         self.price_history_cache: Dict[str, deque] = {}
@@ -88,6 +104,42 @@ class MonitorEngine:
         self.base_url = base_url
         self.advisor.reconfigure(provider=provider, api_key=api_key,
                                  model=model, base_url=base_url)
+
+    def set_feishu(self, webhook_url: str = None, secret: str = None):
+        """运行时更新飞书推送配置（GUI 调用）。"""
+        notification.configure_feishu(webhook_url=webhook_url, secret=secret)
+
+    def save_runtime_config(self) -> Dict[str, Any]:
+        """
+        把当前运行时配置写回 JSON 持久化（GUI 保存按钮调用）。
+        返回已保存的配置 dict。
+        """
+        cfg = {
+            'ai_provider': self.provider or settings.get_default_config()['ai_provider'],
+            'ai_model': self.model or '',
+            'ai_api_key': self.api_key or '',
+            'ai_base_url': self.base_url or '',
+            'feishu_webhook_url': notification._get_webhook(),
+            'feishu_secret': notification._get_secret(),
+            'stock_pool': self.stock_pool,
+            'thresholds': self.thresholds,
+        }
+        settings.save_config(cfg)
+        self._saved_cfg = cfg
+        return cfg
+
+    def get_config(self) -> Dict[str, Any]:
+        """返回当前生效的配置（供 GUI 填表单）。"""
+        return {
+            'ai_provider': self.provider or self._saved_cfg.get('ai_provider', 'kimi'),
+            'ai_model': self.model or '',
+            'ai_api_key': self.api_key or '',
+            'ai_base_url': self.base_url or '',
+            'feishu_webhook_url': notification._get_webhook(),
+            'feishu_secret': notification._get_secret(),
+            'stock_pool': self.stock_pool,
+            'thresholds': self.thresholds,
+        }
 
     # ---- 初始化（只跑一次）----
     def init(self, log_cb=None):
@@ -188,8 +240,7 @@ class MonitorEngine:
                     alert_record['ai_response'] = ai_response
                     if ai_response:
                         push_title = f"🚨 预警: {data.name} 触发 {alert_type}"
-                        notification.send_feishu(push_title, ai_response)
-                        alert_record['pushed'] = True
+                        alert_record['pushed'] = notification.send_feishu(push_title, ai_response)
                 except Exception as e:
                     logger.error(f"AI/Notify Error {symbol}: {e}")
                     alert_record['ai_response'] = f"❌ {e}"
