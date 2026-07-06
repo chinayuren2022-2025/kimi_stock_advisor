@@ -1,5 +1,7 @@
 # AGENTS.md
 
+> 用户文档见 `readme.md`。本文件面向 AI 编程助手，记录代码层面易错事实。
+
 A 股实时量化监控系统：Easyquotation 行情 → SQLite 派生指标 → 多 LLM 分析 → 飞书推送。Python 3.10+。双入口：PyQt6 GUI（`gui.py`）与 Rich TUI（`main.py`），共用 `engine.MonitorEngine`。支持 6 个 AI provider 切换（Kimi/DeepSeek/Qwen/GLM/豆包/自定义）。
 
 ## 运行
