@@ -26,10 +26,22 @@ STOCK_POOL = [
 ]
 
 # -----------------------------------------------------------------------------
-# API Keys & Services
+# AI Provider (多 LLM 切换)
 # -----------------------------------------------------------------------------
-# Kimi AI API Key (Get from environment variable for security)
-KIMI_API_KEY = os.getenv("KIMI_API_KEY1", "")
+# 默认 provider: kimi|deepseek|qwen|glm|doubao|custom
+AI_PROVIDER = os.getenv("QUANT_AI_PROVIDER", "kimi")
+# 可选: env 覆盖默认 model (所有 provider 通用)
+# AI_MODEL_OVERRIDE = os.getenv("AI_MODEL", "")  # 由 ai_provider.py 读取
+# 可选: env 覆盖 base_url (custom provider 必填)
+# AI_BASE_URL = os.getenv("AI_BASE_URL", "")    # 由 ai_provider.py 读取
+
+# 各 provider 的 API Key (按 provider 读取，零硬编码)
+KIMI_API_KEY = os.getenv("KIMI_API_KEY1", "")       # Kimi (Moonshot)
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")  # DeepSeek
+QWEN_API_KEY = os.getenv("QWEN_API_KEY", "")        # 通义千问
+GLM_API_KEY = os.getenv("GLM_API_KEY", "")          # 智谱 GLM
+DOUBAO_API_KEY = os.getenv("DOUBAO_API_KEY", "")    # 豆包 (火山方舟)
+AI_API_KEY = os.getenv("AI_API_KEY", "")            # 自定义 / 兜底
 
 # -----------------------------------------------------------------------------
 # Notification Services

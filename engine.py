@@ -11,13 +11,13 @@ from typing import Dict, Any, List, Tuple, Optional
 try:
     from . import config
     from .data_feeder import feed_all_data, StockRealtimeData, fetch_daily_history_cache
-    from .kimi_advisor import KimiAdvisor
+    from .kimi_advisor import AIAdvisor
     from . import notification
     from . import database
 except ImportError:
     import config
     from data_feeder import feed_all_data, StockRealtimeData, fetch_daily_history_cache
-    from kimi_advisor import KimiAdvisor
+    from kimi_advisor import AIAdvisor
     import notification
     import database
 
@@ -48,7 +48,10 @@ class MonitorEngine:
     def __init__(self,
                  stock_pool: Optional[List[str]] = None,
                  thresholds: Optional[Dict[str, float]] = None,
-                 api_key: Optional[str] = None):
+                 provider: Optional[str] = None,
+                 api_key: Optional[str] = None,
+                 model: Optional[str] = None,
+                 base_url: Optional[str] = None):
         # 运行时可变配置（GUI 改值时直接 set）
         self.stock_pool: List[str] = list(stock_pool if stock_pool is not None else config.STOCK_POOL)
         self.thresholds: Dict[str, float] = thresholds or {
@@ -56,7 +59,13 @@ class MonitorEngine:
             'vol_ratio': config.VOL_RATIO_THRESHOLD,
             'drop_speed': config.DROP_SPEED_THRESHOLD,
         }
-        self.advisor = KimiAdvisor(api_key or config.KIMI_API_KEY)
+        # AI provider 配置（运行时可切换）
+        self.provider = provider
+        self.api_key = api_key
+        self.model = model
+        self.base_url = base_url
+        self.advisor = AIAdvisor(
+            provider=provider, api_key=api_key, model=model, base_url=base_url)
 
         # 内存历史缓存（legacy 回退路径，DB 速度为 0 时兜底）
         self.price_history_cache: Dict[str, deque] = {}
@@ -69,6 +78,16 @@ class MonitorEngine:
 
     def set_thresholds(self, thresholds: Dict[str, float]):
         self.thresholds.update(thresholds)
+
+    def set_provider(self, provider: str = None, api_key: str = None,
+                     model: str = None, base_url: str = None):
+        """运行时切换 AI provider，重建 advisor client。"""
+        self.provider = provider
+        self.api_key = api_key
+        self.model = model
+        self.base_url = base_url
+        self.advisor.reconfigure(provider=provider, api_key=api_key,
+                                 model=model, base_url=base_url)
 
     # ---- 初始化（只跑一次）----
     def init(self, log_cb=None):

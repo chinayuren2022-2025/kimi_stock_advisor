@@ -36,10 +36,22 @@ echo → 安装依赖 (首次较慢) ...
 pip install -q -r requirements.txt
 
 REM 4. 环境变量提示
-if "%KIMI_API_KEY1%"=="" (
-    echo ⚠️ 未设置 KIMI_API_KEY1，AI 预警将降级提示。
-    echo    set KIMI_API_KEY1=sk-...
+REM 4.1 AI Provider
+if "%QUANT_AI_PROVIDER%"=="" set QUANT_AI_PROVIDER=kimi
+echo ℹ️ 当前 AI Provider: %QUANT_AI_PROVIDER% (可用 set QUANT_AI_PROVIDER=deepseek^|qwen^|glm^|doubao^|custom 切换)
+if "%QUANT_AI_PROVIDER%"=="kimi"     set KEY_VAR=KIMI_API_KEY1
+if "%QUANT_AI_PROVIDER%"=="deepseek" set KEY_VAR=DEEPSEEK_API_KEY
+if "%QUANT_AI_PROVIDER%"=="qwen"     set KEY_VAR=QWEN_API_KEY
+if "%QUANT_AI_PROVIDER%"=="glm"       set KEY_VAR=GLM_API_KEY
+if "%QUANT_AI_PROVIDER%"=="doubao"   set KEY_VAR=DOUBAO_API_KEY
+if "%QUANT_AI_PROVIDER%"=="custom"   set KEY_VAR=AI_API_KEY
+REM 读取对应变量值
+call set KEY_VAL=%%%KEY_VAR%%%
+if "%KEY_VAL%"=="" (
+    echo ⚠️ 未设置 %KEY_VAR%，AI 预警将降级提示。
+    echo    set %KEY_VAR%=...
 )
+REM 4.2 飞书
 if "%FEISHU_WEBHOOK_URL%"=="" (
     echo ⚠️ 未设置 FEISHU_WEBHOOK_URL，飞书推送将跳过。
     echo    set FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/xxx

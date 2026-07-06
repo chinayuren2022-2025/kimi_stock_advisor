@@ -17,15 +17,17 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QTableWidget, QTableWidgetItem, QHeaderView, QPushButton, QLabel,
     QListWidget, QLineEdit, QFormLayout, QPlainTextEdit, QTextEdit,
-    QSpinBox, QDoubleSpinBox, QMessageBox, QSplitter
+    QSpinBox, QDoubleSpinBox, QMessageBox, QSplitter, QComboBox
 )
 from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QColor, QTextCursor
 
 try:
     from .engine import MonitorEngine, is_trading_time
+    from . import ai_provider
 except ImportError:
     from engine import MonitorEngine, is_trading_time
+    import ai_provider
 
 logging.basicConfig(
     level=logging.INFO,
@@ -74,12 +76,43 @@ class MarketTab(QWidget):
         bar = QHBoxLayout()
         self.status_label = QLabel("⏹ 未启动")
         self.sentiment_label = QLabel("市场情绪: --")
+
+        # AI Provider 切换区
+        self.provider_label = QLabel("AI:")
+        self.provider_combo = QComboBox()
+        for key, name in ai_provider.get_provider_list():
+            self.provider_combo.addItem(f"{name} ({key})", key)
+        # 默认选当前 provider
+        cur_provider = ai_provider.resolve()[0]
+        idx = self.provider_combo.findData(cur_provider)
+        if idx >= 0:
+            self.provider_combo.setCurrentIndex(idx)
+
+        self.model_input = QLineEdit()
+        self.model_input.setPlaceholderText("模型 (留空用预设默认)")
+        cur_model = ai_provider.resolve()[2]
+        if cur_model and cur_model != 'ep-xxx':
+            self.model_input.setText(cur_model)
+        self.model_input.setMaximumWidth(160)
+
+        self.key_input = QLineEdit()
+        self.key_input.setPlaceholderText("API Key (留空走 env)")
+        self.key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.key_input.setMaximumWidth(200)
+
+        self.btn_apply_provider = QPushButton("应用 Provider")
         self.btn_start = QPushButton("▶ 启动监控")
         self.btn_stop = QPushButton("■ 停止")
         self.btn_stop.setEnabled(False)
+
         bar.addWidget(self.status_label)
         bar.addWidget(self.sentiment_label)
         bar.addStretch()
+        bar.addWidget(self.provider_label)
+        bar.addWidget(self.provider_combo)
+        bar.addWidget(self.model_input)
+        bar.addWidget(self.key_input)
+        bar.addWidget(self.btn_apply_provider)
         bar.addWidget(self.btn_start)
         bar.addWidget(self.btn_stop)
         layout.addLayout(bar)
@@ -347,8 +380,8 @@ class PushLogTab(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("A 股量化监控系统 (Kimi)")
-        self.resize(1200, 760)
+        self.setWindowTitle("A 股量化监控系统 (多 LLM)")
+        self.resize(1280, 760)
 
         self.engine = MonitorEngine()
         self.worker = None
@@ -376,11 +409,25 @@ class MainWindow(QMainWindow):
     def _wire_signals(self):
         self.market_tab.btn_start.clicked.connect(self.start)
         self.market_tab.btn_stop.clicked.connect(self.stop)
+        self.market_tab.btn_apply_provider.clicked.connect(self.apply_provider)
         self.pool_tab.pool_changed.connect(
             lambda pool: self.pushlog_tab.append(f"股票池更新: {len(pool)} 只")
         )
         self.params_tab.thresholds_changed.connect(
             lambda d: self.pushlog_tab.append(f"阈值更新: {d}")
+        )
+
+    def apply_provider(self):
+        """应用 GUI 选择的 provider/model/key 到 engine。"""
+        provider = self.market_tab.provider_combo.currentData()
+        model = self.market_tab.model_input.text().strip() or None
+        key = self.market_tab.key_input.text().strip() or None
+        self.engine.set_provider(provider=provider, api_key=key, model=model)
+        p, base_url, m, _ = ai_provider.resolve(provider=provider,
+                                                 api_key_override=key,
+                                                 model_override=model)
+        self.pushlog_tab.append(
+            f"AI Provider 切换 -> {p} | model={m} | base_url={base_url}"
         )
 
     # ---- 启动 / 停动 ----
