@@ -1,0 +1,7 @@
+easyquotation
+akshare
+rich
+openai
+requests
+pandas
+PyQt6

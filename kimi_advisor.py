@@ -66,7 +66,7 @@ class KimiAdvisor:
                     {"role": "system", "content": "你是资深A股交易员，请简短输出分析结果。"},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=1,
+                temperature=0.4,
             )
             response = completion.choices[0].message.content
             print("\n🤖 [Kimi 分析结果]:")

@@ -163,11 +163,6 @@ def feed_all_data(stock_list: List[str] = None, all_market=False) -> Dict[str, S
         
     return results
 
-# Legacy Single Fetch (Not used by new main fetch strategy, but kept for symbol compatibility if referenced)
-def fetch_single_stock_details(symbol: str) -> StockRealtimeData:
-    logger.warning("fetch_single_stock_details is deprecated in EasyQuotation mode.")
-    return StockRealtimeData(symbol=symbol)
-
 def fetch_daily_history_cache(stock_list: List[str]) -> Dict[str, str]:
     """
     Fetch recent 5-day daily history for context.
