@@ -33,7 +33,7 @@ call .venv\Scripts\activate
 
 REM 3. 依赖
 echo → 安装依赖 (首次较慢) ...
-pip install -q -r requirements.txt
+pip install -q -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 REM 4. 环境变量提示（可选，也可在 GUI 配置中心填写并持久化）
 echo ℹ️ 环境变量可选——也可启动后在 GUI「配置中心」Tab 填写并保存

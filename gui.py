@@ -14,6 +14,11 @@ try:
 except ImportError:
     import config
 
+# Qt platform plugin 路径兜底（修 macOS "Could not find cocoa" 问题）
+import PyQt6 as _PyQt6
+os.environ.setdefault('QT_PLUGIN_PATH',
+    os.path.join(os.path.dirname(_PyQt6.__file__), 'Qt6', 'plugins'))
+
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QTableWidget, QTableWidgetItem, QHeaderView, QPushButton, QLabel,
