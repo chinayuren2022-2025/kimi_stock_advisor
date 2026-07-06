@@ -57,7 +57,8 @@ python -m unittest test_feed_all_data     # 唯一单测，mock easyquotation/ak
 - Kimi 模型 ID 硬编码为 `kimi-k2.5`（`ai_provider.py` 预设），`temperature=0.4`；更新模型/温度需改源码。
 - `kimi_advisor.py` 实为通用 `AIAdvisor` 类，保留文件名与 `KimiAdvisor` 别名以兼容旧 import。`ai_provider.py` 是 provider 配置唯一来源。
 - GUI 用 QThread 跑 `engine.cycle()` 避免 Kimi API 阻塞 UI；SQLite 连接在 `database.py` 内每次新建，不跨线程共享，符合线程安全。
-- `quant_data.db`（~1.8MB，随运行增长）和 `quant_monitor.log` 是运行产物，已加 `.gitignore`；`.venv/` 同已忽略。
+- `quant_data.db`（~1.8MB，随运行增长）和 `quant_monitor.log` 是运行产物。开发时写在仓库根目录；打包后（PyInstaller frozen）写在 `~/Library/Application Support/kimi_stock_advisor/`。路径解析在 `paths.py`，依赖 `sys.frozen` / `sys._MEIPASS` 判断环境。已加 `.gitignore`；`.venv/`、`build/`、`dist/`、`*.dmg` 同已忽略。
+- DMG 打包：`./build_dmg.sh` 调 PyInstaller（`build.spec`，entry=gui.py，windowed，arm64）+ `hdiutil` 生成 `dist/kimi_stock_advisor-<version>.dmg`。`build.spec` 裁掉了用不到的 Qt 模块（QtBluetooth/QtQml/QtWebEngine 等）减小体积，`hiddenimports` 含 akshare/easyquotation 的隐藏依赖。未签名，用户首次启动需右键打开。
 
 ## 约定
 

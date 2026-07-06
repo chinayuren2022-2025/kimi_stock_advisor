@@ -6,9 +6,12 @@ from datetime import datetime
 from typing import List, Dict, Any
 import os
 
-logger = logging.getLogger(__name__)
+try:
+    from .paths import db_path as DB_FILE
+except ImportError:
+    from paths import db_path as DB_FILE
 
-DB_FILE = "quant_data.db"
+logger = logging.getLogger(__name__)
 
 def get_connection():
     return sqlite3.connect(DB_FILE)

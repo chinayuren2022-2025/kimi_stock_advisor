@@ -6,3 +6,6 @@ quant_data.db
 quant_monitor.log
 *.log
 .DS_Store
+build/
+dist/
+*.dmg

@@ -15,9 +15,14 @@ except ImportError:
     import config
 
 # Qt platform plugin 路径兜底（修 macOS "Could not find cocoa" 问题）
-import PyQt6 as _PyQt6
-os.environ.setdefault('QT_PLUGIN_PATH',
-    os.path.join(os.path.dirname(_PyQt6.__file__), 'Qt6', 'plugins'))
+# frozen 时用 sys._MEIPASS，开发时用 PyQt6 包路径
+if hasattr(sys, '_MEIPASS'):
+    _plugin_base = sys._MEIPASS
+else:
+    import PyQt6 as _PyQt6
+    _plugin_base = os.path.dirname(getattr(_PyQt6, '__file__', '') or '')
+if _plugin_base:
+    os.environ.setdefault('QT_PLUGIN_PATH', os.path.join(_plugin_base, 'Qt6', 'plugins'))
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
@@ -34,18 +39,20 @@ try:
     from . import ai_provider
     from . import settings
     from . import notification
+    from .paths import log_path as _LOG_PATH
 except ImportError:
     from engine import MonitorEngine, is_trading_time
     import ai_provider
     import settings
     import notification
+    from paths import log_path as _LOG_PATH
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler('quant_monitor.log', encoding='utf-8')
+        logging.FileHandler(_LOG_PATH, encoding='utf-8')
     ]
 )
 logger = logging.getLogger(__name__)

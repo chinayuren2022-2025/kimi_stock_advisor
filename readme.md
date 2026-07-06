@@ -26,12 +26,21 @@
 
 ## 快速开始
 
-### 1. 克隆与依赖
+### 方式 A — 下载 DMG（推荐，无需装 Python）
+
+1. 前往 [Releases 页面](https://github.com/chinayuren2022-2025/kimi_stock_advisor/releases) 下载最新 `kimi_stock_advisor-x.x.x.dmg`
+2. 双击挂载，将 `kimi_stock_advisor.app` 拖到「应用程序」文件夹
+3. **首次启动**：因未签名，双击会提示「无法验证开发者」。右键点击 .app →「打开」→ 在弹窗中点「打开」即可，之后双击正常启动
+4. 启动后在「配置中心」Tab 填写 AI Provider、API Key、飞书 Webhook → 点「保存配置」（持久化到 `~/.quant_local_config.json`，下次自动加载）
+
+### 方式 B — 从源码运行（开发者）
 
 ```bash
 git clone git@github.com:chinayuren2022-2025/kimi_stock_advisor.git
 cd kimi_stock_advisor
-pip install -r requirements.txt
+./start.sh                # 一键建 venv + 装依赖 + 起 GUI（macOS/Linux）
+python gui.py             # 或直接起 GUI
+python main.py            # TUI 终端模式（调试/无头）
 ```
 
 ### 2. 配置（二选一）

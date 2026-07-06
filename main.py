@@ -10,11 +10,13 @@ try:
     from . import config
     from .engine import MonitorEngine, is_trading_time
     from .dashboard import MonitorDashboard
+    from .paths import log_path as _LOG_PATH
     from rich.live import Live
 except ImportError:
     import config
     from engine import MonitorEngine, is_trading_time
     from dashboard import MonitorDashboard
+    from paths import log_path as _LOG_PATH
     from rich.live import Live
 
 # Setup logging
@@ -23,7 +25,7 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler('quant_monitor.log', encoding='utf-8')
+        logging.FileHandler(_LOG_PATH, encoding='utf-8')
     ]
 )
 logger = logging.getLogger(__name__)
